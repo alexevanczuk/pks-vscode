@@ -43,6 +43,30 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Check if version changed in this push
+        id: version_changed
+        run: |
+          before="${{ github.event.before }}"
+          changed=true
+          # A no-parent / brand-new push has no meaningful "before"; treat as changed.
+          if [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$before:package.json" 2>/dev/null; then
+            git show "$before:package.json" > /tmp/prev-package.json
+            prev=$(node -p "require('/tmp/prev-package.json').version")
+            if [ "$prev" = "${{ steps.package_version.outputs.version }}" ]; then
+              changed=false
+            fi
+          fi
+          echo "changed=$changed" >> $GITHUB_OUTPUT
+
+      # Guard: catch the silent-skip trap where package.json is bumped to a
+      # version whose tag already exists (publish would otherwise be skipped and
+      # the release job would still report success). Fail loudly instead.
+      - name: Fail if bumped version collides with an existing tag
+        if: steps.version_changed.outputs.changed == 'true' && steps.tag_exists.outputs.exists == 'true'
+        run: |
+          echo "::error::package.json version was changed to ${{ steps.package_version.outputs.version }} in this push, but tag v${{ steps.package_version.outputs.version }} already exists. Bump to a new, untagged version."
+          exit 1
+
       - name: Package extension
         if: steps.tag_exists.outputs.exists == 'false'
         run: npx @vscode/vsce package --no-yarn
