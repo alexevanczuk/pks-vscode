@@ -443,7 +443,18 @@ export function activate(context: vscode.ExtensionContext): void {
   pks.executeAll();
 
   ws.onDidSaveTextDocument((e: vscode.TextDocument) => {
-    if (pks.isOnSave) {
+    if (!pks.isOnSave) {
+      return;
+    }
+
+    // Saving package.yml / package_todo.yml can affect violations in *other*
+    // files (adding a dependency, recording/removing a todo, making a constant
+    // public). A single-file check can't catch those, so do a whole-workspace
+    // recheck. Ruby/gemfile saves keep the fast single-file check.
+    const baseName = e.fileName.split('/').pop() || '';
+    if (baseName === 'package.yml' || baseName === 'package_todo.yml') {
+      pks.executeAll();
+    } else {
       pks.execute(e);
     }
     // Re-run validate when package.yml files are saved
